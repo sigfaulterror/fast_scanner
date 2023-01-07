@@ -46,5 +46,5 @@ amass enum -d "$TARGET" -dir amass_result -nf massdns_found_subdomains.txt
 ##   Cleaning temp files   ##
 #############################
 
-rm massdns_found_subdomains dns_resolvers
+rm massdns_found_subdomains.txt dns_resolvers
 
