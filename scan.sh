@@ -30,14 +30,56 @@ fi
 MASSDNS_PATH=`dirname $(dirname "$(readlink -f $(which massdns))")`
 
 #############################
+##   Preparing resolvers   ##
+#############################
+
+function resolve_subdomain {
+    subdomain=$1
+    ns_records=$(dig NS $subdomain +short)
+    if [ -z "$ns_records" ]; then
+        subdomain=$(echo $subdomain | cut -d'.' -f2-)
+        if [ -z "$subdomain" ]; then
+            echo "Reached the top-level domain, no resolution found."
+            exit 1
+        else
+            resolve_subdomain $subdomain
+        fi
+    else
+        echo "$ns_records"
+    fi
+}
+
+function create_resolver {
+    resolvers=($(resolve_subdomain $TARGET))
+    results=()
+
+    for item in "${resolvers[@]}"; do
+        # Check if the value is an IPv4 or IPv6 address
+        if [[ $item =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ || $item =~ ^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$ ]]; then
+            results+=("$item")
+        else
+            # If not, perform dig +short and store the result in the results array
+            dns=($(dig +short $item))
+            for ip in "${dns[@]}"; do
+                results+=("$ip")
+            done
+        fi
+    done
+    rm -f $PWD/dns_resolvers
+    for item in "${results[@]}"; do
+        echo $item >>$PWD/dns_resolvers 
+    done
+
+}
+
+create_resolver
+#############################
 ##   Scanning the target   ##
 #############################
 
-Target=$1
-dig +short NS  $TARGET|xargs dig +short >dns_resolvers
-echo "$MASSDNS_PATH/scripts/subbrute.py $SUBDOMAIN_WORDLIST_PATH $TARGET |  massdns -r $PWD/dns_resolvers -t A -o S -w massdns_result.txt"
+echo "$MASSDNS_PATH/scripts/subbrute.py $TARGET $SUBDOMAIN_WORDLIST_PATH |  massdns -r $PWD/dns_resolvers -t A -o S -w massdns_result.txt"
 
-"$MASSDNS_PATH/scripts/subbrute.py" "$SUBDOMAIN_WORDLIST_PATH" "$TARGET" |  massdns -r "$PWD/dns_resolvers" -t A -o S -w massdns_result.txt
+"$MASSDNS_PATH/scripts/subbrute.py" "$TARGET"  "$SUBDOMAIN_WORDLIST_PATH" |  massdns -r "$PWD/dns_resolvers" -t A -o S -w massdns_result.txt
 cat massdns_result.txt |cut -f 1 -d ' '|grep -Po ".*$TARGET"|sort -u > massdns_found_subdomains.txt
 echo "[!] amass enum -d $TARGET -dir amass_result -nf massdns_found_subdomains.txt"
 amass enum -d "$TARGET" -dir amass_result -nf massdns_found_subdomains.txt
